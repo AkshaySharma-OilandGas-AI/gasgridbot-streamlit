@@ -1,4 +1,21 @@
 import streamlit as st
+
+st.header("🔑 Secrets Debug Check")
+
+# Try to read all keys from st.secrets
+try:
+    st.write("AZURE_OPENAI_ENDPOINT:", st.secrets["AZURE_OPENAI_ENDPOINT"])
+    st.write("AZURE_OPENAI_KEY:", "✅ Found (hidden)")
+    st.write("AZURE_OPENAI_API_VERSION:", st.secrets["AZURE_OPENAI_API_VERSION"])
+    st.write("AZURE_EMBEDDING_DEPLOYMENT:", st.secrets["AZURE_EMBEDDING_DEPLOYMENT"])
+    st.write("AZURE_CHAT_DEPLOYMENT:", st.secrets["AZURE_CHAT_DEPLOYMENT"])
+    st.write("AZURE_SEARCH_ENDPOINT:", st.secrets["AZURE_SEARCH_ENDPOINT"])
+    st.write("AZURE_SEARCH_KEY:", "✅ Found (hidden)")
+    st.write("AZURE_SEARCH_INDEX_NAME:", st.secrets["AZURE_SEARCH_INDEX_NAME"])
+    st.success("🎉 All secrets loaded successfully!")
+except KeyError as e:
+    st.error(f"❌ Missing secret: {e}")
+import streamlit as st
 import openai
 from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
