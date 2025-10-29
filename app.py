@@ -14,7 +14,7 @@ mode = st.sidebar.radio(
 
 # Optional dynamic header/subtitle
 if mode == "GasGridBot (RAG Search)":
-    st.markdown("**Mode:** Domain-specific RAG over Hydrotest, Compliance, Corrosion & Methane docs.")
+    st.markdown("**Mode:** Domain-specific RAG over Hydrotest and complaince docs.")
 else:
     st.markdown("**Mode:** Open-domain GPT-3.5 (not grounded in your documents).")
     st.info("⚠️ This mode does not use your uploaded PDFs or Cognitive Search.")
