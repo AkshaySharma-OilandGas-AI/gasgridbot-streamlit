@@ -6,6 +6,19 @@ from azure.core.credentials import AzureKeyCredential
 
 # ---------- App Config ----------
 st.set_page_config(page_title="GasGridBot", page_icon="💡")
+# --- Bot mode toggle (goes near the top, before Sidebar) ---
+mode = st.sidebar.radio(
+    "Select Bot Mode:",
+    ("GasGridBot (RAG Search)", "General GPT-3.5 Chat")
+)
+
+# Optional dynamic header/subtitle
+if mode == "GasGridBot (RAG Search)":
+    st.markdown("**Mode:** Domain-specific RAG over Hydrotest, Compliance, Corrosion & Methane docs.")
+else:
+    st.markdown("**Mode:** Open-domain GPT-3.5 (not grounded in your documents).")
+    st.info("⚠️ This mode does not use your uploaded PDFs or Cognitive Search.")
+
 st.title("💡 GasGridBot by Akshay Sharma")
 st.caption("AI assistant for Midstream Natural Gas Utilites (RAG POC)")
 
@@ -48,6 +61,21 @@ def retrieve_context(query: str, top_k: int = 3):
             contexts.append(content)
             sources.append(source)
     return "\n\n".join(contexts), sources
+def answer_with_context(user_query: str, context_text: str, temperature=0, max_tokens=600, system_hint=None):
+    sys_msg = system_hint or (
+        "You are GasGridBot, an assistant that answers ONLY from the provided context. "
+        "If the answer is not in the context, say you don't know."
+    )
+    resp = openai.ChatCompletion.create(
+        engine=AZURE_CHAT_DEPLOYMENT,
+        messages=[
+            {"role": "system", "content": sys_msg},
+            {"role": "user", "content": f"Context:\n{context_text}\n\nQuestion: {user_query}"}
+        ],
+        temperature=temperature,
+        max_tokens=max_tokens
+    )
+    return resp["choices"][0]["message"]["content"]
 
 # ---------- Session state ----------
 if "history" not in st.session_state:
@@ -102,45 +130,60 @@ with st.sidebar:
         except KeyError as e:
             st.error(f"❌ Missing secret: {e}")
 
-# ---------- Chat UI ----------
-user_query = st.chat_input("Ask GasGridBot about Hydrotest reports…")
+# ---------- Chat UI (dual-mode) ----------
+if "messages" not in st.session_state:
+    st.session_state.messages = []  # [{"role": "user"/"assistant", "content": "..."}]
+
+# Render existing history
+for m in st.session_state.messages:
+    with st.chat_message("user" if m["role"] == "user" else "assistant"):
+        st.markdown(m["content"])
+
+# Input
+user_query = st.chat_input("Ask a question...")
 if user_query:
+    st.session_state.messages.append({"role": "user", "content": user_query})
     with st.chat_message("user"):
-        st.write(user_query)
+        st.markdown(user_query)
 
-    try:
-        # 1) Retrieve context
-        context_text, sources = retrieve_context(user_query, top_k=3)
+    with st.chat_message("assistant"):
+        try:
+            if mode == "GasGridBot (RAG Search)":
+                # 1) Retrieve context from Cognitive Search
+                context_text, sources = retrieve_context(user_query, top_k=3)
 
-        # 2) Build conversation
-        messages = [{"role": "system",
-                     "content": "You are GasGridBot, an assistant that answers ONLY from Hydrotest report context. "
-                                "If answer not in context, say you don't know."}]
-        for turn in st.session_state.history[-6:]:
-            messages.append(turn)
-        messages.append({"role": "user", "content": f"Context:\n{context_text}\n\nQuestion: {user_query}"})
+                # Guardrail: no context found
+                if not context_text.strip():
+                    bot_reply = "I don't have relevant context in the indexed documents to answer this."
+                    st.warning("No relevant context found in your indexed documents.")
+                else:
+                    # 2) Ask GPT with context
+                    bot_reply = answer_with_context(user_query, context_text, temperature=0, max_tokens=600)
 
-        # 3) Ask GPT
-        resp = openai.ChatCompletion.create(
-            engine=AZURE_CHAT_DEPLOYMENT,
-            messages=messages,
-            temperature=0,
-            max_tokens=600
-        )
-        bot_reply = resp["choices"][0]["message"]["content"]
+                st.markdown(bot_reply)
+                if sources:
+                    with st.expander("Sources"):
+                        for s in sources:
+                            st.write(f"- {s}")
 
-        # 4) Render
-        with st.chat_message("assistant"):
-            st.write(bot_reply)
-            if sources:
-                with st.expander("Sources"):
-                    for s in sources:
-                        st.write(f"- {s}")
+            else:  # General GPT-3.5 Chat (no RAG)
+                response = openai.ChatCompletion.create(
+                    engine=AZURE_CHAT_DEPLOYMENT,  # e.g. "gpt-35-turbo"
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": user_query}
+                    ],
+                    temperature=0.3,
+                    max_tokens=600
+                )
+                bot_reply = response["choices"][0]["message"]["content"]
+                st.markdown(bot_reply)
 
-        # Save to history
-        st.session_state.history.append({"role": "user", "content": user_query})
-        st.session_state.history.append({"role": "assistant", "content": bot_reply})
+        except Exception as e:
+            st.error("Something went wrong. Check your secrets and index configuration.")
+            st.exception(e)
+            bot_reply = "Error."
 
-    except Exception as e:
-        st.error("Something went wrong. Check secrets and index configuration.")
-        st.exception(e)
+    # Save bot reply to history
+    st.session_state.messages.append({"role": "assistant", "content": bot_reply})
+
